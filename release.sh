@@ -54,6 +54,7 @@ mvn versions:set -DgenerateBackupPoms=false -DprocessAllModules=true -DnewVersio
 
 for module in ${modules[@]}
 do
+	cd "$module"
 	git commit -am "Bump version up to $developVersion" 
 done
 
