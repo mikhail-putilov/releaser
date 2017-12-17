@@ -66,7 +66,7 @@ function print_line {
 	echo "[INFO] ------------------------------------------------------------------------"
 }
 
-# get all pathes of all modules in current pom
+# get paths of all modules in current pom
 modules=( $(mvn -q --also-make exec:exec -Dexec.executable="pwd") )
 
 print_line
