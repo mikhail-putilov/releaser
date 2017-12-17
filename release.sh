@@ -52,6 +52,12 @@ do
 	
 	git checkout develop
 	git pull origin develop
+
+	currentDevelopVersion=$(mvn help:evaluate -Dexpression=project.version | grep -v "^\[INFO")
+	if [[ "$currentDevelopVersion" == "$developVersion" ]]; then
+		echo "[ERROR] Next development version $developVersion == current development version"
+		exit 2
+	fi
 	print_line
 done
 
@@ -61,11 +67,15 @@ cd "${reactor}"
 # set version for all develop branches
 mvn versions:set -DgenerateBackupPoms=false -DprocessAllModules=true -DnewVersion="$developVersion"
 
+echo "[INFO] Committing changes in develop..."
+print_line
 # commit new version
 for module in ${modules[@]}
 do
 	cd "$module"
+	echo "[INFO] Committing changes in ${module}..."
 	git commit -am "Bump version up to $developVersion" 
+	print_line
 done
 
 echo "[INFO] Creating release branches..."
