@@ -8,6 +8,13 @@ releasePrefix="[RELEASE ${releaseVersion}]"
 set -e
 set -o pipefail
 
+function mark {
+    export $1=`pwd`;
+}
+
+# remember this folder as reactor
+mark reactor
+
 function build_module {
 	mvn clean install -U
 }
@@ -48,10 +55,13 @@ do
 	print_line
 done
 
+echo "[INFO] Bumping develop version up to $developVersion..."
+print_line
+cd "${reactor}"
 # set version for all develop branches
 mvn versions:set -DgenerateBackupPoms=false -DprocessAllModules=true -DnewVersion="$developVersion"
 
-
+# commit new version
 for module in ${modules[@]}
 do
 	cd "$module"
@@ -72,6 +82,7 @@ do
 	print_line
 done
 
+cd "${reactor}"
 # set version for all release branches
 mvn versions:set -DgenerateBackupPoms=false -DprocessAllModules=true -DnewVersion="$releaseVersion"
 
