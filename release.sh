@@ -1,12 +1,55 @@
 #!/bin/sh
+# Usage:
+# sh ./release.sh -r 0.1.0 -d 0.1.1-SNAPSHOT
+# which means:
+#  1) we a releasing 0.1.0 version
+#  2) preparing for development of a new 0.1.1 version
 
-releaseVersion="0.1.0"
-developVersion="0.1.1-SNAPSHOT"
-releaseName="release/${releaseVersion}"
-releasePrefix="[RELEASE ${releaseVersion}]"
+# release.sh doesn't push any changes
 
 set -e
 set -o pipefail
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    -r|--releaseVersion)
+    releaseVersion="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -d|--developVersion)
+    developVersion="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    --default)
+    DEFAULT=YES
+    shift # past argument
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [ -z "$releaseVersion" ]; then
+    echo "-r or --releaseVersion must be set in order to set new release version"
+    exit 3
+fi
+if [ -z "$developVersion" ]; then
+    echo "-d or --developVersion must be set in order to set new development version"
+    exit 4
+fi
+
+releaseBranchName="release/${releaseVersion}"
+releaseMessageCommit="[RELEASE v${releaseVersion}]"
+
 
 function mark {
     export $1=`pwd`;
@@ -35,13 +78,13 @@ for module in ${modules[@]}
 do
 	echo "[INFO] Exec: cd ${module}"
 	cd "$module"
-	echo "[INFO] Checking if release branch ${releaseName} is already created..."
-	if git show-ref --verify -q refs/heads/${releaseName}
+	echo "[INFO] Checking if release branch ${releaseBranchName} is already created..."
+	if git show-ref --verify -q refs/heads/${releaseBranchName}
 	then
-		echo "[ERROR] Branch name ${releaseName} already exists in ${module}. Proceed with exit without changes."
+		echo "[ERROR] Branch name ${releaseBranchName} already exists in ${module}. Proceed with exit without changes."
 		exit 1
 	else
-		echo "[INFO] No branch with name ${releaseName} is detected."
+		echo "[INFO] No branch with name ${releaseBranchName} is detected."
 	fi
 	echo "[INFO] Checking if working tree is clean..."
 	if [[ `git status --porcelain` ]]; then
@@ -85,9 +128,9 @@ for module in ${modules[@]}
 do
 	echo "[INFO] Exec: git clean -f:"
 	git clean -f
-	echo "[INFO] Exec: git checkout -b ${releaseName} HEAD^:"
+	echo "[INFO] Exec: git checkout -b ${releaseBranchName} HEAD^:"
 	# create release branch from previous commit
-	git checkout -b $releaseName HEAD^
+	git checkout -b $releaseBranchName HEAD^
 	echo "[INFO] Exec: done '${module}'"
 	print_line
 done
@@ -111,7 +154,7 @@ print_line
 for module in ${modules[@]}
 do
 	# only if build is succeeded we commit release branch
-	git commit -am "${releasePrefix}"
+	git commit -am "${releaseMessageCommit}"
 	print_line
 done
 
