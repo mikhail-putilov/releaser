@@ -147,7 +147,7 @@ done
 
 
 ####   <version bumping in develop> ####
-print_header '[INFO] Bumping develop version up to $developVersion...'
+print_header "[INFO] Bumping develop version up to $developVersion..."
 cd "$reactor"
 # set version for all develop branches
 set_versions "$developVersion"
@@ -168,8 +168,7 @@ done
 print_header '[INFO] Creating release branches...'
 # clean && create release branches
 for module in "${modules[@]}"; do
-	echo '[INFO] Exec: git clean -f:'
-	git clean -f
+	cd "$module"
 	echo "[INFO] Exec: git checkout -b ${releaseBranchName} HEAD^:"
 	# create release branch from previous commit
 	git checkout -b $releaseBranchName HEAD^
@@ -194,6 +193,7 @@ build_module
 ####   <commit release branches> ####
 print_header '[INFO] Commiting release branches...'
 for module in "${modules[@]}"; do
+	cd "$module"
 	# only if build is succeeded we commit release branch
 	git commit -am "${releaseMessageCommit}"
 	print_line
