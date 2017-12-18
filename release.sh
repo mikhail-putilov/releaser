@@ -93,7 +93,7 @@ print_line() {
 }
 
 print_header() {
-	echo "$1"
+	echo "[INFO] $1"
 	print_line
 }
 
@@ -156,34 +156,30 @@ print_line
 
 
 ####   <validating> ####
-print_header '[INFO] Validating modules...'
+print_header 'Validating modules...'
 # validate working tree and existing of release branches
 for module in "${modules[@]}"; do
 	echo "[INFO] Exec: cd ${module}"
 	cd "$module"
 	echo "[INFO] Checking if release branch ${releaseBranchName} is already created..."
 	if git show-ref --verify -q "refs/heads/${releaseBranchName}"; then
-		fail "[ERROR] Branch name ${releaseBranchName} already exists in ${module}. Proceed with exit without changes."
+		fail "Branch name ${releaseBranchName} already exists in ${module}. Proceed with exit without changes."
 	else
 		echo "[INFO] No branch with name ${releaseBranchName} is detected."
 	fi
 	echo '[INFO] Checking if working tree is clean...'
 	if [[ $(git status --porcelain) ]]; then
-		echo "[ERROR] Working tree is not clean in ${module}. Proceed with exit without changes"
+		fail "Working tree is not clean in ${module}. Proceed with exit without changes"
 	else
 		echo '[INFO] Working tree is okay'
 	fi
 	
 	git checkout develop
-	checkpoint
-	# at first tag creation we must set that we have something that we want to rollback in case something will go wrong
-	isAllScriptSucceeded='false'
 	git pull origin develop
 
 	currentDevelopVersion=$(mvn help:evaluate -Dexpression=project.version | grep -v "^\[INFO")
 	if [[ "$currentDevelopVersion" == "$developVersion" ]]; then
-		echo "[ERROR] Next development version $developVersion == current development version"
-		exit 2
+		fail "Next development version $developVersion == current development version"
 	fi
 	print_line
 done
@@ -191,13 +187,24 @@ done
 
 
 
+####   <creating checkpoint for rollback> ####
+for module in "${modules[@]}"; do
+	cd "$module"
+	checkpoint
+done
+# now we have something to rollback to, so let isAllScriptSucceeded to be explicit false (it was empty string)
+isAllScriptSucceeded='false'
+####   </creating checkpoint for rollback> ####
+
+
+
 ####   <version bumping in develop> ####
-print_header "[INFO] Bumping develop version up to $developVersion..."
+print_header "Bumping develop version up to $developVersion..."
 cd "$reactor"
 # set version for all develop branches
 set_versions "$developVersion"
 
-print_header '[INFO] Committing changes in develop...'
+print_header 'Committing changes in develop...'
 # commit new version
 for module in "${modules[@]}"; do
 	cd "$module"
@@ -210,7 +217,7 @@ done
 
 
 ####   <creating release branches> ####
-print_header '[INFO] Creating release branches...'
+print_header 'Creating release branches...'
 # clean && create release branches
 for module in "${modules[@]}"; do
 	cd "$module"
@@ -229,14 +236,14 @@ cd "$reactor"
 # set version for all release branches
 set_versions "$releaseVersion"
 
-print_header '[INFO] Building release branches...'
+print_header 'Building release branches...'
 build_module
 ####   </set release version in release branches and building> ####
 
 
 
 ####   <commit release branches> ####
-print_header '[INFO] Commiting release branches...'
+print_header 'Commiting release branches...'
 for module in "${modules[@]}"; do
 	cd "$module"
 	# only if build is succeeded we commit release branch
