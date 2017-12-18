@@ -107,6 +107,8 @@ set_versions() {
 }
 
 checkpoint() {
+	cd "$1"
+	echo "[INFO] Creating checkpoint for $1"
 	git tag release-sh-checkpoint || fail 'release-sh-checkpoint tag already exists! Something went horribly wrong'
 }
 
@@ -189,8 +191,7 @@ done
 
 ####   <creating checkpoint for rollback> ####
 for module in "${modules[@]}"; do
-	cd "$module"
-	checkpoint
+	checkpoint "$module"
 done
 # now we have something to rollback to, so let isAllScriptSucceeded to be explicit false (it was empty string)
 isAllScriptSucceeded='false'
