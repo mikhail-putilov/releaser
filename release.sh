@@ -132,7 +132,7 @@ finish() {
 				remove_checkpoint
 				set +e
 				git branch -D "$releaseBranchName"
-				
+
 				set -e
 			else
 				fail 'No checkpoint release-sh-checkpoint tag is found. Cannot rollback to checkpoint'
@@ -173,9 +173,9 @@ for module in "${modules[@]}"; do
 	else
 		echo '[INFO] Working tree is okay'
 	fi
-	checkpoint
 	
 	git checkout develop
+	checkpoint
 	git pull origin develop
 
 	currentDevelopVersion=$(mvn help:evaluate -Dexpression=project.version | grep -v "^\[INFO")
