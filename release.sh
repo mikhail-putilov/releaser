@@ -73,7 +73,7 @@ fi
 
 
 #### <helper definitions> ####
-isAllScriptSucceeded='false'
+isAllScriptSucceeded=''
 releaseBranchName="release/${releaseVersion}"
 releaseMessageCommit="[RELEASE v${releaseVersion}]"
 
@@ -176,6 +176,8 @@ for module in "${modules[@]}"; do
 	
 	git checkout develop
 	checkpoint
+	# at first tag creation we must set that we have something that we want to rollback in case something will go wrong
+	isAllScriptSucceeded='false'
 	git pull origin develop
 
 	currentDevelopVersion=$(mvn help:evaluate -Dexpression=project.version | grep -v "^\[INFO")
