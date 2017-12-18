@@ -13,6 +13,13 @@
 #             : а -d это новая версия develop (инкремент)
 #             : скрипт ничего не пушит, все изменения локальные
 # REPOSITORY  : https://github.com/YOUR_USER/your_project
+# COMMENTS    : release.sh надеется найти агрегирующий pom.xml рядом с собой, в котором будут указаны все остальные проекты в секции modules.
+# скрипт узнает пути до папок всех модулей (включая и путь до папки которая содержит агрегирующий pom.xml). После этого выполняет проверку:
+# 1) существует ли уже релизная ветка
+# 2) совпадает ли новая версия develop и текущая
+# 3) есть ли незакомиченые изменения в каком-либо из модулей
+# Если хотя бы одно из условий true, то скрипт выходит не начиная работу, а иначе обновляет версию develop ветки, создает релизные ветки во всех модулях и запускает
+# билд mvn clean install -U из агрегирующего pom.xml. Если билд успешен, то все изменения в релизных ветках (измененная версия pom.xml) комитятся.
 
 # we want to fail fast our script in case non null exit code
 set -e
@@ -80,6 +87,11 @@ print_line() {
 	echo '[INFO] ------------------------------------------------------------------------'
 }
 
+print_header() {
+	echo "$1"
+	print_line
+}
+
 set_versions() {
 	mvn versions:set -DgenerateBackupPoms=false \
 		-DprocessAllModules=true \
@@ -101,8 +113,7 @@ print_line
 
 
 ####   <validating> ####
-echo '[INFO] Validating modules...'
-print_line
+print_header '[INFO] Validating modules...'
 # validate working tree and existing of release branches
 for module in "${modules[@]}"; do
 	echo "[INFO] Exec: cd ${module}"
@@ -136,14 +147,12 @@ done
 
 
 ####   <version bumping in develop> ####
-echo '[INFO] Bumping develop version up to $developVersion...'
-print_line
+print_header '[INFO] Bumping develop version up to $developVersion...'
 cd "$reactor"
 # set version for all develop branches
 set_versions "$developVersion"
 
-echo '[INFO] Committing changes in develop...'
-print_line
+print_header '[INFO] Committing changes in develop...'
 # commit new version
 for module in "${modules[@]}"; do
 	cd "$module"
@@ -156,8 +165,7 @@ done
 
 
 ####   <creating release branches> ####
-echo '[INFO] Creating release branches...'
-print_line
+print_header '[INFO] Creating release branches...'
 # clean && create release branches
 for module in "${modules[@]}"; do
 	echo '[INFO] Exec: git clean -f:'
@@ -172,26 +180,19 @@ done
 
 
 
-####   <set release version in release branches> ####
+####   <set release version in release branches and building> ####
 cd "$reactor"
 # set version for all release branches
 set_versions "$releaseVersion"
 
-echo '[INFO] Building release branches...'
-print_line
-# build and commit
-for module in "${modules[@]}"; do
-	cd "$module"
-	build_module
-	print_line
-done
-####   </set release version in release branches> ####
+print_header '[INFO] Building release branches...'
+build_module
+####   </set release version in release branches and building> ####
 
 
 
 ####   <commit release branches> ####
-echo '[INFO] Commiting release branches...'
-print_line
+print_header '[INFO] Commiting release branches...'
 for module in "${modules[@]}"; do
 	# only if build is succeeded we commit release branch
 	git commit -am "${releaseMessageCommit}"
