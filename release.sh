@@ -235,7 +235,7 @@ done
 cd "$reactor"
 # set version for all release branches
 set_versions "$releaseVersion"
-
+fail 'lol'
 print_header 'Building release branches...'
 build_module
 ####   </set release version in release branches and building> ####
