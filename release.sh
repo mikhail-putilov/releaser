@@ -73,11 +73,16 @@ fi
 
 
 #### <helper definitions> ####
+isAllScriptSucceeded='false'
 releaseBranchName="release/${releaseVersion}"
 releaseMessageCommit="[RELEASE v${releaseVersion}]"
 
 # get folder where release.sh is located
 reactor="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+fail() {
+	echo "[ERROR] $1" && exit 1
+}
 
 build_module() {
 	mvn clean install -U
@@ -100,6 +105,44 @@ set_versions() {
 		-DgroupId=* \
 		-DartifactId=*
 }
+
+checkpoint() {
+	git tag release-sh-checkpoint || fail 'release-sh-checkpoint tag already exists! Something went horribly wrong'
+}
+
+remove_checkpoint() {
+	git tag -d release-sh-checkpoint || fail 'release-sh-checkpoint tag is not found! Something went horribly wrong'
+}
+
+rollback_to_checkpoint() {
+	git clean -f || fail 'Cannot run git clean -f'
+	git reset --hard HEAD || fail 'Cannot run git reset --hard HEAD'
+	git checkout develop || fail 'Cannot run git checkout develop'
+	git reset --hard release-sh-checkpoint || fail 'Cannot run git reset --hard release-sh-checkpoint'
+}
+
+finish() {
+	if [[ $isAllScriptSucceeded == 'false' ]]; then
+		cd "$reactor" || fail 'reactor is not defined at the resource cleaning phase'
+		modules=( $(mvn -q --also-make exec:exec -Dexec.executable="pwd") )
+		for module in "${modules[@]}"; do
+			cd "$module"
+			if git rev-parse -q --verify "refs/tags/release-sh-checkpoint"; then
+				rollback_to_checkpoint
+				remove_checkpoint
+				set +e
+				git branch -D "$releaseBranchName"
+				
+				set -e
+			else
+				fail 'No checkpoint release-sh-checkpoint tag is found. Cannot rollback to checkpoint'
+			fi
+		done
+	fi
+}
+
+trap finish EXIT
+
 #### </helper definitions> ####
 
 
@@ -119,9 +162,8 @@ for module in "${modules[@]}"; do
 	echo "[INFO] Exec: cd ${module}"
 	cd "$module"
 	echo "[INFO] Checking if release branch ${releaseBranchName} is already created..."
-	if git show-ref --verify -q refs/heads/${releaseBranchName}; then
-		echo "[ERROR] Branch name ${releaseBranchName} already exists in ${module}. Proceed with exit without changes."
-		exit 1
+	if git show-ref --verify -q "refs/heads/${releaseBranchName}"; then
+		fail "[ERROR] Branch name ${releaseBranchName} already exists in ${module}. Proceed with exit without changes."
 	else
 		echo "[INFO] No branch with name ${releaseBranchName} is detected."
 	fi
@@ -131,6 +173,7 @@ for module in "${modules[@]}"; do
 	else
 		echo '[INFO] Working tree is okay'
 	fi
+	checkpoint
 	
 	git checkout develop
 	git pull origin develop
@@ -171,7 +214,7 @@ for module in "${modules[@]}"; do
 	cd "$module"
 	echo "[INFO] Exec: git checkout -b ${releaseBranchName} HEAD^:"
 	# create release branch from previous commit
-	git checkout -b $releaseBranchName HEAD^
+	git checkout -b "$releaseBranchName" HEAD^
 	echo "[INFO] Exec: done '${module}'"
 	print_line
 done
@@ -199,8 +242,11 @@ for module in "${modules[@]}"; do
 	print_line
 done
 ####   </commit release branches> ####
-
+isAllScriptSucceeded='true'
 
 
 #### </main> ####
+
+
+
 
