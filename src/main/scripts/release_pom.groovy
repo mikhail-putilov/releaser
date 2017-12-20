@@ -16,6 +16,26 @@ enum ExitStatus {
 class Command {
     String cmd
     String failExplanation
+
+    def executeCommand() {
+        println command
+        def process = command.execute()
+        process.waitFor()
+        def exitStatus = ExitStatus.getStatusByExitCode(process.exitValue())
+        if (exitStatus == ExitStatus.FAILFAST) {
+            print "${process.err.text}\n"
+            throw new RuntimeException("$command.failExplanation")
+        }
+        print process.in.text
+        exitStatus
+    }
+}
+
+class GitCommand extends Command {
+    String dir
+    GitCommand(dir, cmd, failExplanation) {
+        super(cmdPrefix: "git -C $dir", cmd: cmd, failExplanation: failExplanation)
+    }
 }
 
 def exitStatus = ExitStatus.READY
@@ -23,13 +43,13 @@ def project = new XmlSlurper().parse(new File("pom.xml"));
 def currentDir = new File(".").getAbsolutePath()
 
 def validateCommands = [
-        new Command(cmd: 'status --porcelain',
+        new GitCommand(cmd: 'status --porcelain',
                 failExplanation: 'working dir is not clean'),
-        new Command(cmd: "checkout $developBranchName",
+        new GitCommand(cmd: "checkout $developBranchName",
                 failExplanation: "cannot checkout $developBranchName branch"),
-        new Command(cmd: "pull origin $developBranchName",
+        new GitCommand(cmd: "pull origin $developBranchName",
                 failExplanation: "cannot pull new changes for $developBranchName branch"),
-        new Command(cmd: "tag $checkpointTagName",
+        new GitCommand(cmd: "tag $checkpointTagName",
                 failExplanation: "cannot create checkpoint (git tag $checkpointTagName). Probably repository is in inconsistent state with the others"),
 ]
 
@@ -43,26 +63,18 @@ def setReleaseVersionsByMvn = new Command(cmd: """mvn versions:set -DgenerateBac
     -DartifactId=*""", failExplanation: 'Maven cannot update version of all modules')
 
 
-def executeCommand(command) {
-    println command
-    def process = command.execute()
-    process.waitFor()
-    def exitStatus = ExitStatus.getStatusByExitCode(process.exitValue())
-    print exitStatus == ExitStatus.FAILFAST ? "${process.err.text}\n" : process.in.text
-    exitStatus
-}
+
 
 project.modules.children().each {
     def dir = Paths.get(currentDir, "$it")
     def git = "git -C $dir"
     validateCommands.each {
-        if (exitStatus == ExitStatus.FAILFAST) throw new RuntimeException("Fail fast! $it.failExplanation. Couldn't process command '$it.cmd'")
-        exitStatus = executeCommand("$git $it")
+        executeCommand("$git $it")
     }
 }
 
-executeCommand(checkpointCommand)
-executeCommand(setReleaseVersionsByMvn)
+checkpointCommand.executeCommand()
+setReleaseVersionsByMvn.executeCommand()
 
 
 new Command(cmd: "checkout -b $releaseBranchName", failExplanation: "cannot create release branch: $releaseBranchName")
