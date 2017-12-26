@@ -10,10 +10,15 @@
         <developerConnection>scm:git:https://github.com/musius/releaser.git</developerConnection>
         <tag>HEAD</tag>
     </scm>
-    <modules>
-        <module>../dsa.project</module>
-        <module>../dsa.project2</module>
-    </modules>
+    <profiles>
+        <profile>
+            <id>sub-modules</id>
+            <modules>
+                <module>../dsa.project</module>
+                <module>../dsa.project2</module>
+            </modules>
+        </profile>
+    </profiles>
     <build>
         <plugins>
             <plugin>
