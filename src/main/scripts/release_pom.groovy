@@ -1,156 +1,119 @@
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
 import java.nio.file.Paths
 
 def releaseVersion = '1.0.0'
 def releaseBranchName = "release/$releaseVersion"
 def checkpointTagName = "$releaseVersion-checkpoint"
 def developBranchName = 'develop'
+def releaseCommitMessage = "\"Release_v$releaseVersion\""
 
+def project = new XmlSlurper().parse(new File('pom.xml'));
+def currentDir = new File('.').getAbsolutePath()
+def modules = project
+        .profiles
+        .children()
+        .find { it.id == 'sub-modules' }
+        .modules
+        .children()
+        .collect { Paths.get(currentDir, it.text()).normalize() }
+currentDir = Paths.get(currentDir).normalize()
+def allModules = modules.clone()
+allModules.add(currentDir)
 
-def project = new XmlSlurper().parse(new File("pom.xml"));
-currentDir = new File(".").getAbsolutePath()
-profile = project.profiles.children().find { profile ->
-    profile.id == 'sub-modules'
-}
 class Phase {
-    String phaseTitle
-    String phaseFailAdditional
-    List<Command> cmds
-    Phase(phaseTitle, phaseFailAdditional, cmds) {
-        this.phaseTitle = phaseTitle
-        this.phaseFailAdditional = phaseFailAdditional
+    Logger log
+    def dirs
+    String title
+    def cmds
+    boolean ignoreExitCode
+
+    Phase(dirs, title, cmds, ignoreExitCode = false) {
+        this.ignoreExitCode = ignoreExitCode
+        this.dirs = dirs
+        this.title = title
         this.cmds = cmds
+        this.log = LoggerFactory.getLogger(this.title)
     }
-    def runPhase() {
+
+    def run() {
         try {
-            println "***** $phaseTitle *****"
-            run(cmds)
-        } catch (RuntimeException e) {
-            System.err.println "Exception during $phaseTitle. $phaseFailAdditional\nException message:"
-            System.err.println e.message
-            e.printStackTrace()
-            System.err.println "Execution log of the phase ${phaseTitle.toLowerCase}:"
-            System.err.println e.executionLog
-        }
-    }
-}
-/**
- * Run commands in all modules
- */
-def run(commands) {
-    // module dir -> executed commands
-    executionLog = [:]
-    profile.modules.children().each {
-        try {
-            String currentModule = "$it".toString()
-            executionLog[currentModule] = []
-            def dir = Paths.get(currentDir, "$it")
-            commands.each {
-                try {
-                    it.prepare(dir)
-                    it.executeCommand()
-                } finally {
-                    // always put commands even if command failed
-                    executionLog[currentModule].add(it)
+            dirs.each { dir ->
+                log.info "--- $title @ $dir ---"
+                cmds.each { cmd ->
+                    log.info "$cmd"
+                    if (cmd.startsWith('git')) {
+                        cmd = cmd.replace('git', "git -C $dir")
+                        log.trace "Actual command is $cmd"
+                    }
+                    def process = cmd.execute()
+                    process.waitFor()
+
+                    def isBadExitValue = !ignoreExitCode && process.exitValue()
+                    if (cmd.contains('show-ref --verify')) {
+                        isBadExitValue = !isBadExitValue
+                    }
+                    if (isBadExitValue) {
+                        throw new RuntimeException("failed: $cmd\nerror text: ${process.err.text ?: 'no error text'}")
+                    }
+//                log.info process.in.text
                 }
             }
-        } catch (RuntimeException e) {
-            e.metaClass.executionLog = executionLog
-            throw e;
+            log.info "------------------------------------------------------------------------"
+            log.info "${title.toUpperCase()} SUCCESS"
+            log.info "------------------------------------------------------------------------"
+        } catch (Throwable t) {
+            log.info "------------------------------------------------------------------------"
+            log.info "${title.toUpperCase()} FAILED"
+            log.info "------------------------------------------------------------------------"
+            throw t
         }
-    }
-}
-
-class Command {
-    String cmd
-    String failExplanation
-
-    Command(cmd, failExplanation) {
-        this.cmd = cmd
-        this.failExplanation = failExplanation
-    }
-
-    def executeCommand() {
-        println cmd
-        def process = cmd.execute()
-        process.waitFor()
-
-        if (process.exitValue()) {
-            print "${process.err.text}\n"
-            throw new RuntimeException(failExplanation)
-        }
-        print process.in.text
-    }
-
-    void prepare(dir) {
-        // noop
-    }
-
-    String toString() {
-        return cmd
-    }
-}
-
-class GitCommand extends Command {
-    def dir
-    def subcmd
-
-    GitCommand(String subcmd, String failExplanation) {
-        super('', failExplanation)
-        this.subcmd = subcmd
-    }
-
-    void prepare(dir) {
-        this.dir = dir
-        this.cmd = "git -C $dir $subcmd"
-    }
-
-    String toString() {
-        return "git $subcmd"
     }
 }
 
 def validateCommands = [
-        new GitCommand('status --porcelain',
-                'working dir is not clean'),
-        new GitCommand("checkout $developBranchName",
-                "cannot checkout $developBranchName branch"),
-        new GitCommand("pull origin $developBranchName",
-                "cannot pull new changes for $developBranchName branch")
+        'git status --porcelain',
+        'git diff --exit-code',
+        "git show-ref --verify \"refs/heads/${releaseBranchName}\"",
+        "git checkout $developBranchName",
+        "git pull origin $developBranchName"
 ]
 
-validatePhase = new Phase("Validation", "No chanes have been made", validateCommands)
-def checkpointCommand = new GitCommand("tag $checkpointTagName",
-        "cannot create checkpoint (git tag $checkpointTagName). Probably repository is in inconsistent state with the others")
+def validationPhase = new Phase(modules, 'Validation Phase', validateCommands)
+//validationPhase.run()
 
-///////////////////////////////////////////////////
+def checkpointCommand = ["git tag $checkpointTagName"]
+def deleteCheckpointCommand = ["git tag -d $checkpointTagName"]
+def checkpointPhase = new Phase(modules, 'Checkpoint Phase', checkpointCommand)
+//checkpointPhase.run()
+
+def createReleaseCommands = [
+        "git checkout $checkpointTagName",
+        "git checkout -b $releaseBranchName",
+        """mvn versions:set -DgenerateBackupPoms=false
+    -DprocessAllModules=true
+    -DnewVersion="${releaseVersion}"
+    -DoldVersion=*
+    -DgroupId=*
+    -DartifactId=*""",
+        "git add -u .",
+        "git commit --message=$releaseCommitMessage"
+]
 try {
-    run(validateCommands)
-} catch (RuntimeException e) {
-    System.err.println 'Cannot validate project. No changes have been made. Exception message:'
-    System.err.println e.message
-    e.printStackTrace()
-    System.err.println 'Execution log:'
-    System.err.println e.executionLog
+    def createReleasePhase = new Phase(modules, 'Release Branching Phase', createReleaseCommands)
+    createReleasePhase.run()
+} catch (Throwable e) {
+    def rollbackPhase = new Phase(modules, 'Rollback Phase', ["git checkout develop",
+                                                              "git reset --hard $checkpointTagName",
+                                                              "git branch -D $releaseBranchName"], true)
+    rollbackPhase.run()
+    throw e
+} finally {
+    def deleteCheckpointPhase = new Phase(modules, 'Delete Checkpoint Phase', deleteCheckpointCommand)
+    deleteCheckpointPhase.run()
+
 }
-try {
-    run([checkpointCommand])
-} catch (RuntimeException e) {
-    System.err.println 'Cannot create checkpoint.'
-    System.err.println e.message
-    e.printStackTrace()
-    System.err.println 'Execution of the log:'
-    System.err.println e.executionLog
-}
-//
-//def createReleaseBranchCommand = new Command(cmd: "checkout -b $releaseBranchName",
-//        failExplanation: "cannot create release branch: $releaseBranchName")
-//def setReleaseVersionsByMvnCommand = new Command(cmd: """mvn versions:set -DgenerateBackupPoms=false
-//    -DprocessAllModules=true
-//    -DnewVersion="${releaseVersion}"
-//    -DoldVersion=*
-//    -DgroupId=*
-//    -DartifactId=*""", failExplanation: 'Maven cannot update version of all modules')
-//
 //checkpointCommand.executeCommand()
 //currentState = ExitStatus.SUCCESS // now we have something to lose, because we created checkpoint
 //
